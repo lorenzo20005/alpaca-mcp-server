@@ -15,16 +15,19 @@ async def resolve(page):
     await page.wait_for_timeout(5000)
     await page.evaluate('window.scrollTo(0, document.body.scrollHeight)'); await page.wait_for_timeout(2500)
     await page.evaluate('window.scrollTo(0,0)')
-    links=await page.locator('a[href*="albums"]').evaluate_all("els=>els.map(a=>({text:(a.innerText||a.textContent||'').trim(),href:a.href,html:a.innerHTML}))")
+    OUT.joinpath('category.html').write_text(await page.content(),encoding='utf-8')
+    all_links=await page.locator('a').evaluate_all("els=>els.map(a=>({text:(a.innerText||a.textContent||'').trim(),href:a.href,html:a.innerHTML}))")
+    OUT.joinpath('links.json').write_text(json.dumps(all_links,ensure_ascii=False,indent=2),encoding='utf-8')
+    links=[x for x in all_links if 'albums' in (x.get('href') or '')]
     out=[]; used=set()
     for code in wanted:
-        c=[x for x in links if code.lower() in (x['text']+' '+x['html']).lower() and '/albums/' in x['href'] and x['href'] not in used]
+        c=[x for x in links if code.lower() in ((x.get('text') or '')+' '+(x.get('html') or '')).lower() and '/albums/' in x['href'] and x['href'] not in used]
         if not c:
             href=await page.evaluate("""(code)=>{
               const els=[...document.querySelectorAll('body *')].filter(e=>(e.textContent||'').toLowerCase().includes(code.toLowerCase()));
               for(const e of els){
                 let n=e;
-                for(let i=0;i<8 && n;i++,n=n.parentElement){
+                for(let i=0;i<10 && n;i++,n=n.parentElement){
                   if(n.tagName==='A' && n.href && n.href.includes('/albums/')) return n.href;
                   const a=n.querySelector && n.querySelector('a[href*="albums"]');
                   if(a && a.href && a.href.includes('/albums/')) return a.href;
@@ -55,7 +58,6 @@ async def scrape(context,label,url):
         attrs=await page.locator('img').evaluate_all("""els=>els.flatMap(img=>{const v=[];for(const a of ['src','data-src','data-original','data-origin-src','data-lazy-src','data-url','data-ks-lazyload']){const x=img.getAttribute(a);if(x)v.push(x)}if(img.currentSrc)v.push(img.currentSrc);const s=img.getAttribute('srcset');if(s)s.split(',').forEach(x=>v.push(x.trim().split(/\\s+/)[0]));return v})""")
         for v in attrs:
             if v and not v.startswith(('data:','blob:')): seen.add(urljoin(page.url,v))
-        # Keep one highest-quality URL per Yupoo image hash, preferring original/big over medium/small/square.
         byhash={}; other=[]
         for u in seen:
             lu=u.lower()
