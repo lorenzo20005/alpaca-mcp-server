@@ -1,3 +1,4 @@
 run 2026-08-18 10:43 CEST
 rerun 2026-08-18 10:47 CEST
 debug 2026-08-18 10:50 CEST
+collection resolver 2026-08-18 10:54 CEST
