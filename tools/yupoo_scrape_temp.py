@@ -16,12 +16,12 @@ async def resolve(page):
         url=f'https://scarlettluxury.x.yupoo.com/collections/4064059?page={pg}'
         try:
             await page.goto(url,wait_until='domcontentloaded',timeout=90000)
-            await page.wait_for_timeout(1200)
-            links=await page.locator('a[href*="albums"]').evaluate_all("els=>els.map(a=>({text:(a.innerText||a.textContent||'').trim(),href:a.href}))")
-            diagnostics.append({'page':pg,'count':len(links),'titles':[x['text'] for x in links if x['text']][:40]})
+            await page.wait_for_timeout(1000)
+            links=await page.locator('a[href*="albums"]').evaluate_all("els=>els.map(a=>({text:(a.innerText||a.textContent||'').trim(),title:(a.getAttribute('title')||'').trim(),href:a.href}))")
+            diagnostics.append({'page':pg,'count':len(links),'albums':[{'title':x['title'],'text':x['text'],'href':x['href']} for x in links if x.get('title')][:50]})
             for code in wanted:
                 if code in found: continue
-                c=[x for x in links if code.lower() in (x.get('text') or '').lower() and '/albums/' in x.get('href','') and x['href'] not in used]
+                c=[x for x in links if code.lower() in ((x.get('title') or '')+' '+(x.get('text') or '')).lower() and '/albums/' in x.get('href','') and x['href'] not in used]
                 if c:
                     found[code]=c[0]['href']; used.add(c[0]['href']); print('FOUND',code,c[0]['href'],'page',pg,flush=True)
             if len(found)==len(wanted): break
@@ -43,7 +43,7 @@ async def scrape(context,label,url):
         page.on('response',resp)
         await page.goto(url,wait_until='domcontentloaded',timeout=90000); await page.wait_for_timeout(3000)
         for y in [600,1200,2400,5000,9000,15000,25000]:
-            await page.evaluate(f'window.scrollTo(0,{y})'); await page.wait_for_timeout(550)
+            await page.evaluate(f'window.scrollTo(0,{y})'); await page.wait_for_timeout(500)
         r['title']=await page.title()
         attrs=await page.locator('img').evaluate_all("""els=>els.flatMap(img=>{const v=[];for(const a of ['src','data-src','data-original','data-origin-src','data-lazy-src','data-url','data-ks-lazyload']){const x=img.getAttribute(a);if(x)v.push(x)}if(img.currentSrc)v.push(img.currentSrc);const s=img.getAttribute('srcset');if(s)s.split(',').forEach(x=>v.push(x.trim().split(/\\s+/)[0]));return v})""")
         for v in attrs:
