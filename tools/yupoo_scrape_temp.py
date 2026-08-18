@@ -11,34 +11,24 @@ wanted=[
 def clean(s): return re.sub(r'[^A-Za-z0-9._-]+','_',s).strip('_')[:100]
 
 async def resolve(page):
-    await page.goto('https://scarlettluxury.x.yupoo.com/albums/?page=1',wait_until='domcontentloaded',timeout=90000)
-    await page.wait_for_timeout(5000)
-    await page.evaluate('window.scrollTo(0, document.body.scrollHeight)'); await page.wait_for_timeout(2500)
-    await page.evaluate('window.scrollTo(0,0)')
-    OUT.joinpath('category.html').write_text(await page.content(),encoding='utf-8')
-    all_links=await page.locator('a').evaluate_all("els=>els.map(a=>({text:(a.innerText||a.textContent||'').trim(),href:a.href,html:a.innerHTML}))")
-    OUT.joinpath('links.json').write_text(json.dumps(all_links,ensure_ascii=False,indent=2),encoding='utf-8')
-    links=[x for x in all_links if 'albums' in (x.get('href') or '')]
-    out=[]; used=set()
-    for code in wanted:
-        c=[x for x in links if code.lower() in ((x.get('text') or '')+' '+(x.get('html') or '')).lower() and '/albums/' in x['href'] and x['href'] not in used]
-        if not c:
-            href=await page.evaluate("""(code)=>{
-              const els=[...document.querySelectorAll('body *')].filter(e=>(e.textContent||'').toLowerCase().includes(code.toLowerCase()));
-              for(const e of els){
-                let n=e;
-                for(let i=0;i<10 && n;i++,n=n.parentElement){
-                  if(n.tagName==='A' && n.href && n.href.includes('/albums/')) return n.href;
-                  const a=n.querySelector && n.querySelector('a[href*="albums"]');
-                  if(a && a.href && a.href.includes('/albums/')) return a.href;
-                }
-              }
-              return null;
-            }""", code)
-            c=[{'href':href}] if href and href not in used else []
-        href=c[0]['href'] if c else None
-        out.append((clean(code),href));
-        if href: used.add(href)
+    found={}; used=set(); diagnostics=[]
+    for pg in range(1,36):
+        url=f'https://scarlettluxury.x.yupoo.com/collections/4064059?page={pg}'
+        try:
+            await page.goto(url,wait_until='domcontentloaded',timeout=90000)
+            await page.wait_for_timeout(1200)
+            links=await page.locator('a[href*="albums"]').evaluate_all("els=>els.map(a=>({text:(a.innerText||a.textContent||'').trim(),href:a.href}))")
+            diagnostics.append({'page':pg,'count':len(links),'titles':[x['text'] for x in links if x['text']][:40]})
+            for code in wanted:
+                if code in found: continue
+                c=[x for x in links if code.lower() in (x.get('text') or '').lower() and '/albums/' in x.get('href','') and x['href'] not in used]
+                if c:
+                    found[code]=c[0]['href']; used.add(c[0]['href']); print('FOUND',code,c[0]['href'],'page',pg,flush=True)
+            if len(found)==len(wanted): break
+        except Exception as e:
+            diagnostics.append({'page':pg,'error':repr(e)})
+    OUT.joinpath('resolver_pages.json').write_text(json.dumps(diagnostics,ensure_ascii=False,indent=2),encoding='utf-8')
+    out=[(clean(code),found.get(code)) for code in wanted]
     print('RESOLVED',out,flush=True)
     return out
 
@@ -51,9 +41,9 @@ async def scrape(context,label,url):
             u=x.url; ct=(x.headers or {}).get('content-type','')
             if ('image' in ct.lower() or re.search(r'\.(jpg|jpeg|png|webp)(\?|$)',u,re.I)) and ('yupoo' in u.lower() or 'photo' in u.lower()): seen.add(u)
         page.on('response',resp)
-        await page.goto(url,wait_until='domcontentloaded',timeout=90000); await page.wait_for_timeout(3500)
+        await page.goto(url,wait_until='domcontentloaded',timeout=90000); await page.wait_for_timeout(3000)
         for y in [600,1200,2400,5000,9000,15000,25000]:
-            await page.evaluate(f'window.scrollTo(0,{y})'); await page.wait_for_timeout(700)
+            await page.evaluate(f'window.scrollTo(0,{y})'); await page.wait_for_timeout(550)
         r['title']=await page.title()
         attrs=await page.locator('img').evaluate_all("""els=>els.flatMap(img=>{const v=[];for(const a of ['src','data-src','data-original','data-origin-src','data-lazy-src','data-url','data-ks-lazyload']){const x=img.getAttribute(a);if(x)v.push(x)}if(img.currentSrc)v.push(img.currentSrc);const s=img.getAttribute('srcset');if(s)s.split(',').forEach(x=>v.push(x.trim().split(/\\s+/)[0]));return v})""")
         for v in attrs:
@@ -66,7 +56,7 @@ async def scrape(context,label,url):
             m=re.search(r'photo\.yupoo\.com/[^/]+/([^/]+)/([^/?]+)',u,re.I)
             if m:
                 h=m.group(1); fn=m.group(2).lower()
-                score=4 if fn=='big.jpg' else 5 if fn not in ('medium.jpg','small.jpg','square.jpg','big.jpg') else 3 if fn=='medium.jpg' else 2 if fn=='small.jpg' else 1
+                score=5 if fn not in ('medium.jpg','small.jpg','square.jpg','big.jpg') else 4 if fn=='big.jpg' else 3 if fn=='medium.jpg' else 2 if fn=='small.jpg' else 1
                 if h not in byhash or score>byhash[h][0]: byhash[h]=(score,u)
             else: other.append(u)
         urls=[v[1] for v in byhash.values()]+other
